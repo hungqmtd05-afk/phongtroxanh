@@ -2,18 +2,24 @@
 // Chạy:  node server.js   rồi mở http://localhost:3000
 // API:   GET  /api/ping      kiểm tra back-end
 //        GET  /api/sensors   dữ liệu cảm biến IoT (mô phỏng phía máy chủ)
-//        POST /api/bill      nhận chỉ số điện nước, tính hóa đơn ở back-end và lưu vào bills.json
+//        POST /api/bill      nhận chỉ số điện nước + dịch vụ, tính hóa đơn ở back-end và lưu vào bills.json
 //        GET  /api/bills     danh sách hóa đơn đã lập
 const http = require('http'), fs = require('fs'), path = require('path'), url = require('url');
 const PORT = process.env.PORT || 3000, DIR = __dirname, DB = path.join(DIR, 'bills.json');
 const EP = 3500, WP = 20000, SIM = {};
-
+ 
 const load = () => { try { return JSON.parse(fs.readFileSync(DB, 'utf8')); } catch (e) { return []; } };
 const send = (res, code, obj) => {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
 };
-
+ 
+// Tìm file trang web: ưu tiên phong-tro.html, rồi index.html, rồi file .html đầu tiên trong thư mục
+function findPage() {
+  const files = fs.readdirSync(DIR);
+  return ['phong-tro.html', 'index.html'].find(f => files.includes(f)) || files.find(f => f.toLowerCase().endsWith('.html'));
+}
+ 
 function sensors(ids) {
   const out = {};
   ids.forEach(id => {
@@ -25,16 +31,18 @@ function sensors(ids) {
   });
   return out;
 }
-
+ 
 function makeBill(x) {
   const ok = n => typeof n === 'number' && isFinite(n) && n >= 0;
   if (!/^\d{4}-\d{2}$/.test(x.month) || typeof x.roomId !== 'string' || typeof x.roomName !== 'string') return null;
-  if (![x.price, x.e0, x.e1, x.w0, x.w1].every(ok) || x.e1 < x.e0 || x.w1 < x.w0) return null;
-  const elec = Math.round((x.e1 - x.e0) * EP), water = Math.round((x.w1 - x.w0) * WP);
+  // Đơn giá điện, nước và tiền dịch vụ theo từng phòng (nếu không gửi lên thì dùng giá mặc định)
+  const ep = x.ep === undefined ? EP : x.ep, wp = x.wp === undefined ? WP : x.wp, svc = x.svc === undefined ? 0 : x.svc;
+  if (![x.price, x.e0, x.e1, x.w0, x.w1, ep, wp, svc].every(ok) || x.e1 < x.e0 || x.w1 < x.w0) return null;
+  const elec = Math.round((x.e1 - x.e0) * ep), water = Math.round((x.w1 - x.w0) * wp);
   return { id: 'b' + Date.now(), at: new Date().toISOString(), month: x.month, roomId: x.roomId,
-           roomName: x.roomName.slice(0, 100), price: x.price, elec, water, total: x.price + elec + water };
+           roomName: x.roomName.slice(0, 100), price: x.price, elec, water, svc, total: x.price + elec + water + svc };
 }
-
+ 
 http.createServer((req, res) => {
   const u = url.parse(req.url, true);
   if (u.pathname === '/api/ping') return send(res, 200, { ok: true });
@@ -54,9 +62,14 @@ http.createServer((req, res) => {
     });
     return;
   }
-  if (u.pathname === '/' || u.pathname === '/phong-tro.html') {
-    return fs.readFile(path.join(DIR, 'phong-tro.html'), (e, d) => {
-      if (e) return send(res, 500, { error: 'Không đọc được phong-tro.html (hãy để cùng thư mục với server.js)' });
+  if (u.pathname === '/' || u.pathname === '/phong-tro.html' || u.pathname === '/index.html') {
+    const page = findPage();
+    if (!page) {
+      const files = fs.readdirSync(DIR).join(', ');
+      return send(res, 500, { error: 'Không tìm thấy file .html cùng thư mục với server.js. Các file đang có: ' + files });
+    }
+    return fs.readFile(path.join(DIR, page), (e, d) => {
+      if (e) return send(res, 500, { error: 'Không đọc được ' + page });
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(d);
     });
   }
