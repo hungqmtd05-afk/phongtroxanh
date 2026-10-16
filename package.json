@@ -1,0 +1,13 @@
+{
+  "name": "phong-tro-xanh",
+  "version": "1.0.0",
+  "description": "Trang web cho thuê phòng trọ kèm back-end Node.js",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
